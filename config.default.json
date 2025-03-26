@@ -2,6 +2,7 @@
     "id": "<bot id>",
     "guild": "<guild id>",
     "token": "<token>",
+    "mom": "<your user id>",
     "mongo": {
         "user": "wheatley",
         "password": "wheatley",
