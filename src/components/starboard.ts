@@ -256,20 +256,25 @@ export default class Starboard extends BotComponent {
         );
         const max_non_negative = Math.max(...non_negative_reactions.map(([_, count]) => count)); // -inf if |a|=0
         let do_delete = true;
+        let no_delete_reason = null;
         if (![this.wheatley.channels.memes.id, this.wheatley.channels.cursed_code.id].includes(message.channel.id)) {
             do_delete = false;
+            no_delete_reason = "not possible in this channel";
         }
         if (trigger_reaction.count <= max_non_negative) {
             do_delete = false;
+            no_delete_reason = "greater or equal amount of non-negative reactions";
         }
         if (this.wheatley.is_root(message.author) || message.author.bot) {
             do_delete = false;
+            no_delete_reason = "author is immune from deletions";
         }
         if (this.deletes_in_last_24h() >= max_deletes_in_24h) {
             do_delete = false;
+            no_delete_reason = "24-hour age threshold exceeded";
             this.wheatley.info(">> DELETE IN 24H THRESHOLD EXCEEDED");
         }
-        const action = do_delete ? "Auto-deleting" : "Auto-delete threshold reached";
+        const action = do_delete ? "Auto-deleting" : `Auto-delete threshold reached, but no deletion (${no_delete_reason}) of`;
         M.log(`${action} ${message.url} for ${trigger_reaction.count} ${trigger_reaction.emoji.name} reactions`);
         let flag_message: Discord.Message | null = null;
         try {
