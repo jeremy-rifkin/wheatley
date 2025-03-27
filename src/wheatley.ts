@@ -16,6 +16,7 @@ import { CommandAbstractionReplyOptions } from "./command-abstractions/text-base
 
 import { WheatleyDatabase, WheatleyDatabaseProxy } from "./infra/database-interface.js";
 import { MemberTracker } from "./infra/member-tracker.js";
+import { Virustotal } from "./infra/virustotal.js";
 import { forge_snowflake, send_long_message } from "./utils/discord.js";
 import { TypedEventEmitter } from "./utils/event-emitter.js";
 import { setup_metrics_server } from "./infra/prometheus.js";
@@ -52,11 +53,12 @@ export type wheatley_database_credentials = {
 
 export type wheatley_config = {
     id: string;
-    guild?: string;
+    guild: string;
     token: string;
+    mom?: string;
+    mongo?: wheatley_database_credentials;
     freestanding?: boolean;
     exclude?: string[];
-    mongo?: wheatley_database_credentials;
     sentry?: string;
     virustotal?: string;
     metrics?: {
@@ -64,31 +66,6 @@ export type wheatley_config = {
         hostname: string;
     };
 };
-
-function drop_token({
-    id,
-    guild,
-    freestanding,
-    exclude,
-    mongo,
-    sentry,
-    virustotal,
-    metrics,
-}: wheatley_config): Omit<wheatley_config, "token"> {
-    return {
-        id,
-        guild,
-        freestanding,
-        exclude,
-        mongo,
-        sentry,
-        virustotal,
-        metrics,
-    };
-}
-
-const TCCPP_ID = "331718482485837825";
-export let WHEATLEY_ID: string;
 
 const tuple = <T extends any[]>(...args: T): T => args;
 
@@ -217,8 +194,6 @@ export const skill_roles_order_id = [
     "331719591405551616",
 ];
 
-export const zelis = "199943082441965577";
-
 // General config
 // TODO: Can eliminate this stuff
 export const root_ids = new Set([
@@ -261,9 +236,8 @@ export class Wheatley {
 
     private command_handler: CommandHandler;
 
-    parameters: Omit<wheatley_config, "token">;
-
     database: WheatleyDatabaseProxy;
+    virustotal: Virustotal | null;
 
     // whether wheatley is ready (client is ready + wheatley has set up)
     ready = false;
@@ -323,6 +297,8 @@ export class Wheatley {
         labelNames: ["type"],
     });
 
+    private mom_ping: string;
+
     //
     // Bot setup
     //
@@ -332,10 +308,10 @@ export class Wheatley {
         config: wheatley_config,
     ) {
         this.id = config.id;
+        this.guildId = config.guild;
         this.freestanding = config.freestanding ?? false;
-        this.guildId = config.guild ?? TCCPP_ID;
 
-        this.parameters = drop_token(config);
+        this.mom_ping = config.mom ? ` <@${config.mom}>` : "";
 
         this.tracker = new MemberTracker(this);
         this.log_limiter = new LogLimiter(this);
@@ -347,8 +323,6 @@ export class Wheatley {
             M.error(error);
         });
 
-        WHEATLEY_ID = this.id;
-
         this.setup(config).catch(this.critical_error.bind(this));
     }
 
@@ -356,6 +330,9 @@ export class Wheatley {
         assert(this.freestanding || config.mongo, "Missing MongoDB credentials");
         if (config.mongo) {
             this.database = await WheatleyDatabase.create(this.get_initial_wheatley_info.bind(this), config.mongo);
+        }
+        if (config.virustotal) {
+            this.virustotal = new Virustotal(config.virustotal);
         }
         if (config.metrics) {
             setup_metrics_server(config.metrics.port, config.metrics.hostname);
@@ -396,7 +373,7 @@ export class Wheatley {
         });
 
         for await (const file of globIterate("**/components/*.js", {
-            ignore: this.parameters.exclude,
+            ignore: config.exclude,
             cwd: import.meta.dirname,
         })) {
             const default_export = (await import(`./${file}`)).default;
@@ -552,7 +529,7 @@ export class Wheatley {
         if (!this.log_channel) {
             return;
         }
-        send_long_message(this.log_channel, `🛑 Critical error: ${to_string(arg)} <@${zelis}>`)
+        send_long_message(this.log_channel, `🛑 Critical error: ${to_string(arg)}` + this.mom_ping)
             .catch(() => M.error)
             .finally(() => {
                 if (arg instanceof Error) {
@@ -596,7 +573,7 @@ export class Wheatley {
         if (!this.log_channel) {
             return;
         }
-        send_long_message(this.log_channel, `🚨 Alert: ${message} <@${zelis}>`)
+        send_long_message(this.log_channel, `🚨 Alert: ${message}` + this.mom_ping)
             .catch(M.error)
             .finally(() => {
                 Sentry.captureMessage(message);
@@ -719,7 +696,7 @@ export class Wheatley {
         options: Discord.GuildMember | Discord.UserResolvable | Discord.FetchMemberOptions,
     ): Promise<Discord.GuildMember | null> {
         if (options instanceof Discord.GuildMember) {
-            if (options.guild.id == TCCPP_ID) {
+            if (options.guild.id == this.guildId) {
                 return options;
             } else {
                 return await this.try_fetch_tccpp_member(options.id);
@@ -773,7 +750,7 @@ export class Wheatley {
 
     increment_message_counters(message: Discord.Message) {
         try {
-            if (message.guildId == TCCPP_ID) {
+            if (message.guildId == this.guildId) {
                 if (!message.author.bot) {
                     this.message_counter.labels({ type: "normal" }).inc();
                 } else {

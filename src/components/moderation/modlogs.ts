@@ -8,7 +8,7 @@ import { pluralize, time_to_human } from "../../utils/strings.js";
 import { M } from "../../utils/debugging-and-logging.js";
 import { BotComponent } from "../../bot-component.js";
 import { CommandSetBuilder } from "../../command-abstractions/command-set-builder.js";
-import { Wheatley, WHEATLEY_ID } from "../../wheatley.js";
+import { Wheatley } from "../../wheatley.js";
 import { colors } from "../../common.js";
 import { EarlyReplyMode, TextBasedCommandBuilder } from "../../command-abstractions/text-based-command-builder.js";
 import { CommandAbstractionReplyOptions, TextBasedCommand } from "../../command-abstractions/text-based-command.js";
@@ -18,8 +18,8 @@ import { discord_timestamp } from "../../utils/discord.js";
 
 const moderations_per_page = 5;
 
-function is_autoremove(info: moderation_edit_info) {
-    return info.reason == "Auto" && info.moderator == WHEATLEY_ID;
+function was_removed_early(timestamp: number, issued_at: number, duration: number) {
+    return timestamp < issued_at + duration;
 }
 
 export default class Modlogs extends BotComponent {
@@ -61,7 +61,9 @@ export default class Modlogs extends BotComponent {
             }`,
             moderation.duration === null ? null : `**Duration:** ${time_to_human(moderation.duration)}`,
             `**Reason:** ${moderation.reason ? truncate(moderation.reason, max_reason) : "No reason provided"}`,
-            moderation.removed && !is_autoremove(moderation.removed)
+            moderation.removed &&
+                (!moderation.duration ||
+                    was_removed_early(moderation.removed.timestamp, moderation.issued_at, moderation.duration))
                 ? `**Removed:** ${discord_timestamp(moderation.removed.timestamp)}` +
                       (show_private_logs ? ` by <@${moderation.removed.moderator}>` : "") +
                       ` with reason: "${moderation.removed.reason ? truncate(moderation.removed.reason, 100) : "None"}"`

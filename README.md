@@ -67,6 +67,7 @@ Secrets and other bot info must be configured in the `config.json` file. An exam
   "id": "<bot id>",
   "guild": "<guild id>",
   "token": "<discord api token>",
+  "mom": "<your user id>", // to be pinged when things go wrong
   "mongo": {
     "user": "wheatley",
     "password": "<mongo password>",
